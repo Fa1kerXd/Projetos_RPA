@@ -30,29 +30,8 @@ COLUMNS = {
 
 
 
-DIR = Path(__file__).parent
-FILE = DIR / 'candidatos.xlsx'
-def capture_data_for_excel(file=FILE):
-    try:
-        if file.exists:
-            wb = load_workbook(file)
-            ws = wb.active
-        else:
-            wb = Workbook()
-            wb.create_sheet('Dados')
-            ws = wb.active
-            if ws.max_row == 1 and ws.cell(row=1, column=1).value is None:
-               ws.append(list(COLUMNS.keys()))     
-
-        for col in ws.iter_cols(min_col=1,values_only=True):
-            for row in ws.iter_rows(min_row=1, min_col=1):
-                for cell in col:
-
-       
 
 
-    except Exception as e:
-        print(f"Erro ao abrir a planilha {e}")
 
 
 
