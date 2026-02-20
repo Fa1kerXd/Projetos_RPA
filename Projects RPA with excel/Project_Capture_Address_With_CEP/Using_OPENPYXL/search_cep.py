@@ -1,3 +1,4 @@
+#type: ignore
 """
 Módulo para consulta de CEPs via API ViaCEP e armazenamento
 dos endereços em uma planilha Excel.
@@ -11,6 +12,7 @@ Fluxo:
 import http.client
 import json
 import os
+import re
 from pathlib import Path
 from openpyxl import Workbook, load_workbook
 
@@ -26,6 +28,19 @@ COLUMNS = {
 }
 
 
+def validate_cep(cep) -> bool:
+    """
+    Valida formato básico do CEP (8 dígitos)
+
+    Args:
+        cep (str): CEP a ser validado
+    
+    Returns:
+        bool: True Caso CEP for válido. False Caso CEP ser inválido.
+
+    """
+    return bool(re.fullmatch(r'\d{8}', cep))
+
 def get_address_cep(cep: str) -> dict[str, str]:
     """
     Consulta a API ViaCEP e retorna os dados de endereço do CEP informado.
@@ -37,6 +52,11 @@ def get_address_cep(cep: str) -> dict[str, str]:
         dict[str, str]: Dicionário com os dados do endereço se encontrado.
         dict vazio: Se o CEP for inválido ou ocorrer erro na requisição.
     """
+
+      if not validate_cep(cep):
+        print(f"CEP {cep} inválido (deve ter 8 dígitos).")
+        return {}
+    
     connection = http.client.HTTPSConnection("viacep.com.br")
     try:
         # Envia requisição GET para a API ViaCEP com o CEP informado
@@ -62,7 +82,7 @@ def get_address_cep(cep: str) -> dict[str, str]:
         connection.close()
 
 
-def return_ceps_in_file(file: str) -> list[str]:
+def return_ceps_in_file(file: Path) -> list[str]:
     """
     Lê e retorna os CEPs armazenados na primeira coluna de um arquivo Excel.
 
@@ -81,12 +101,14 @@ def return_ceps_in_file(file: str) -> list[str]:
         for cell in row:
             if cell.value:
                 # Remove hífen para padronizar o formato do CEP
-                ceps.append(str(cell.value).replace("-", ""))
+                ceps_clear = re.sub(r'\D', '', str(cell.value))
+                if ceps_clear:
+                    ceps.append(ceps_clear)
 
     return ceps
 
 
-def save_address_in_excel(addresses: list[dict[str, str]], file: str) -> None:
+def save_address_in_excel(addresses: list[dict[str, str]], file: Path) -> None:
     """
     Salva uma lista de endereços em um arquivo Excel, evitando duplicatas.
 
@@ -128,7 +150,7 @@ def save_address_in_excel(addresses: list[dict[str, str]], file: str) -> None:
     wb.save(file)
 
 
-def add_ceps_in_file(file: str, ceps: list[str]) -> None:
+def add_ceps_in_file(file: Path, ceps: list[str]) -> None:
     """
     Cria um arquivo Excel com uma lista de CEPs na coluna 'A'.
     Utilizado para popular o arquivo de entrada para testes.

@@ -17,7 +17,7 @@ import json
 import re
 import pandas as pd
 from pathlib import Path
-
+import time
 RECEITAWS_HOST = "www.receitaws.com.br"
 DIR = Path(__file__).parent
 FILE = DIR / "data_cnpj.xlsx"
@@ -81,20 +81,44 @@ def cnpj_format(cnpj: str) -> str:
 
 
 
-def write_cnpj_in_sheet(file=FILE) -> list[str]:
+def read_cnpj_in_sheet(file=FILE) -> list[str]:
     if not file.exists():
         print(f"Arquivo {file} não encontrado. Crie a planilha com uma aba 'CNPJS' contendo os CNPJs.")
-     
-    df_cnpj = pd.read_excel(file, sheet_name='CNPJS')
+        return []
+    
 
-    cnpj_consults = df_cnpj['CNPJS'].astype(str).tolist()
 
-    df_data = pd.read_excel(file, sheet_name='Dados')
-    cnpj_pendent = []
-    for cnpj in cnpj_consults:
-        if cnpj not in df_data['cnpj'].dropna():
-            
+    try:
+        # Lê os CNPJs da aba de entrada
+        df_cnpj_input = pd.read_excel(file, sheet_name='CNPJS')
 
+
+        try:
+            # Lê os CNPJs consultados
+            df_data = pd.read_excel(file,sheet_name='Dados')
+            cnpjs_consultados = set(df_data['CNPJ'].astype(str).tolist())
+        except Exception:
+            cnpjs_consultados = set()
+
+        # Normaliza e filtra apenas CNPJs ainda não consultados
+        cnpjs_pendente = []
+        for cnpj in df_cnpj_input['CNPJ'].dropna():
+            cnpj_normalizado = cnpj_format(cnpj)
+
+            if cnpj_normalizado in cnpjs_consultados:
+                print(f"CNPJ {cnpj_normalizado} já foi consultado, pulando...")
+                continue
+            cnpjs_pendente.append(cnpj_normalizado)
+            print(f"CNPJ {cnpj_normalizado} adicionado à fila de consulta.")
+        return cnpjs_pendente 
+
+
+    except Exception as e:
+        print(f"Erro ao ler a planilha: {e}")
+        return []
+
+
+   
 
 
 def get_cnpj_with_httpclient(cnpj: str) -> dict[str, str] | None:
@@ -168,28 +192,32 @@ def save_data_in_sheet(data: dict[str, str], file: Path = FILE) -> None:
     """
     # Carrega ou cria o arquivo Excel
     if file.exists():
-        df_data = pd.read_excel(file, sheet_name="Dados")
-        df_cnpjs = pd.read_excel(file, sheet_name="CNPJS")
+        try:
+            df_data = pd.read_excel(file, sheet_name="Dados")
+        except Exception:
+            df_data = pd.DataFrame(columns=["CNPJ", "nome", "situacao", "atividade_principal", "cep", "email"])
+
+        try:
+            df_cnpjs = pd.read_excel(file, sheet_name="CNPJS")
+        except Exception:
+            df_cnpjs = pd.DataFrame(columns=['CNPJS'])
+
     else:
         df_data = pd.DataFrame(columns=["CNPJ", "nome", "situacao", "atividade_principal", "cep", "email"])
-        df_cnpjs = pd.DataFrame(columns=["CNPJ"])
+        df_cnpjs = pd.DataFrame(columns=['CNPJS'])
 
     # Normaliza o CNPJ e verifica se já foi consultado
     cnpj = cnpj_format(data.get("cnpj", ""))
-    cnpjs_salvos = set(df_cnpjs["CNPJ"].astype(str).tolist())
 
-    if cnpj in cnpjs_salvos:
-        print(f"CNPJ {cnpj} já foi consultado anteriormente.")
-        return
 
     # Extrai atividade principal (é uma lista de dicts)
     atividade = "N/A"
     if data.get("atividade_principal"):
-        atividade = data["atividade_principal"][0].get("text", "N/A")
+        atividade = data["atividade_principal"][0].get("text", "N/A") #type: ignore
 
     # Adiciona nova linha com os dados da empresa
     nova_linha = pd.DataFrame([{
-        "CNPJ": cnpj,
+        "CNPJ": data.get("cnpj", "N/A"),
         "nome": data.get("nome", "N/A"),
         "situacao": data.get("situacao", "N/A"),
         "atividade_principal": atividade,
@@ -201,17 +229,30 @@ def save_data_in_sheet(data: dict[str, str], file: Path = FILE) -> None:
     # Concatena com os dados existentes
     df_data_final = pd.concat([df_data, nova_linha], ignore_index=True)
 
-    # Salva as duas abas no arquivo Excel
+    # Salva mantendo a aba CNPJ intact.
     with pd.ExcelWriter(file, engine="openpyxl") as writer:
         df_data_final.to_excel(writer, sheet_name="Dados", index=False)
+        df_cnpjs.to_excel(writer, sheet_name='CNPJS', index=False)
 
     print(f"CNPJ {cnpj} salvo com sucesso.")
 
 
 if __name__ == "__main__":
-    for cnpj in write_cnpj_in_sheet():
-        result = get_cnpj_with_httpclient(cnpj)
+    print("=== Iniciando consulta de CNPJs ===\n")
 
-    if result:
-        print(result)
-        save_data_in_sheet(result)
+    cnpj_pendente = read_cnpj_in_sheet()
+    if not cnpj_pendente:
+        print("Nenhum CNPJ pendente para consultar.")
+    else:
+        print(f"\n{len(cnpj_pendente)} CNPJ(s) para consultar.\n")
+
+        for i, cnpj in enumerate(cnpj_pendente, 1):
+            print(f"[{i}/{len(cnpj_pendente)}] Consultando CNPJ {cnpj}...\n")
+            result = get_cnpj_with_httpclient(cnpj)
+
+            if result:
+                save_data_in_sheet(result)
+                # Aguarda 20s entre requisições para respeitar o limite da API.
+                if i < len(cnpj_pendente):
+                    print("Aguardando 20 segundos antes da próxima consulta...\n")
+                    time.sleep(20)

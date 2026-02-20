@@ -14,9 +14,27 @@ import pandas as pd
 from pathlib import Path
 import http.client
 import json
+import re
 DIR = Path(__file__).parent
 FILE = DIR / 'CEP.xlsx'
 COLUMNS = ["cep","logradouro", "bairro", "localidade", "uf"]
+
+
+
+def validate_cep(cep) -> bool:
+    """
+    Valida formato básico do CEP (8 dígitos)
+
+    Args:
+        cep (str): CEP a ser validado
+    
+    Returns:
+        bool: True Caso CEP for válido. False Caso CEP ser inválido.
+
+    """
+    return bool(re.fullmatch(r'\d{8}', cep))
+
+
 
 
 def get_address_cep(cep: str) -> dict[str,str] | None:
@@ -30,6 +48,11 @@ def get_address_cep(cep: str) -> dict[str,str] | None:
         dict[str,str]: Dicionário com os dados do endereço se encontrado.
         None: Se o CEP for inválido, não encontrado ou ocorrer erro na requisição.
     """
+
+    if not validate_cep(cep):
+        print(f"CEP {cep} inválido (deve ter 8 dígitos).")
+        return {}
+    
     connection = http.client.HTTPSConnection("viacep.com.br")
     try:
         # Envia requisição GET para a API ViaCEP com o CEP informado
